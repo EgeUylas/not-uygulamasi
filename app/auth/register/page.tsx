@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../../firebase/config';
+import { FirebaseError } from 'firebase/app';
 
 export default function RegisterPage() {
   const [name, setName] = useState('');
@@ -34,15 +35,19 @@ export default function RegisterPage() {
       });
 
       router.push('/'); // Başarılı kayıt sonrası ana sayfaya yönlendir
-    } catch (err: any) {
-      if (err?.code === 'auth/email-already-in-use') {
-        setError('Bu e-posta adresi zaten kullanımda. Lütfen farklı bir e-posta adresi deneyin.');
-      } else if (err?.code === 'auth/weak-password') {
-        setError('Şifre çok zayıf. En az 6 karakter kullanın.');
-      } else if (err?.code === 'auth/invalid-email') {
-        setError('Geçersiz e-posta adresi.');
+    } catch (err: unknown) {
+      if (err instanceof FirebaseError) {
+        if (err.code === 'auth/email-already-in-use') {
+          setError('Bu e-posta adresi zaten kullanımda. Lütfen farklı bir e-posta adresi deneyin.');
+        } else if (err.code === 'auth/weak-password') {
+          setError('Şifre çok zayıf. En az 6 karakter kullanın.');
+        } else if (err.code === 'auth/invalid-email') {
+          setError('Geçersiz e-posta adresi.');
+        } else {
+          setError('Kayıt olurken bir hata oluştu. Lütfen tekrar deneyin.');
+        }
       } else {
-        setError('Kayıt olurken bir hata oluştu. Lütfen tekrar deneyin.');
+        setError('Beklenmeyen bir hata oluştu.');
       }
       console.error(err);
     }
