@@ -39,7 +39,6 @@ interface Note {
   createdAt: string;
   category: string;
   reminderDate?: string;
-  isCompleted?: boolean;
   images?: string[];
   shareId?: string;
   isPublic?: boolean;
@@ -114,7 +113,7 @@ export default function Home() {
           title,
           content,
           category,
-          reminderDate: reminderDate?.toISOString(),
+          reminderDate: reminderDate ? reminderDate.toISOString() : null,
           images,
           updatedAt: new Date().toISOString()
         });
@@ -126,8 +125,7 @@ export default function Home() {
           category,
           userId: user.uid,
           createdAt: new Date().toISOString(),
-          reminderDate: reminderDate?.toISOString(),
-          isCompleted: false,
+          reminderDate: reminderDate ? reminderDate.toISOString() : null,
           images
         };
         await addDoc(collection(db, 'notes'), newNote);
@@ -139,6 +137,7 @@ export default function Home() {
       setImages([]);
     } catch (error) {
       console.error('Not işlemi sırasında hata oluştu:', error);
+      alert('Not kaydedilirken bir hata oluştu!');
     }
   };
 
@@ -160,16 +159,6 @@ export default function Home() {
     setImages([]);
   };
 
-  const handleToggleComplete = async (note: Note) => {
-    try {
-      await updateDoc(doc(db, 'notes', note.id), {
-        isCompleted: !note.isCompleted
-      });
-    } catch (error) {
-      console.error('Not durumu güncellenirken hata oluştu:', error);
-    }
-  };
-
   // Notları filtrele
   const filteredNotes = notes.filter(note => {
     const matchesSearch = 
@@ -189,7 +178,7 @@ export default function Home() {
           matchesDate = isAfter(reminderDate, new Date()) && isBefore(reminderDate, addDays(new Date(), 7));
           break;
         case 'overdue':
-          matchesDate = isBefore(reminderDate, new Date()) && !note.isCompleted;
+          matchesDate = isBefore(reminderDate, new Date());
           break;
       }
     }
@@ -309,58 +298,69 @@ export default function Home() {
             placeholder="Notlarda ara..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm mb-3"
+            className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-700 border-0 rounded-lg focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-white text-sm"
           />
+        </div>
+
+        {/* Filtreler */}
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           {/* Tarih Filtreleri */}
-          <div className="flex flex-wrap gap-2 mb-3">
-            {DATE_FILTERS.map(filter => (
-              <button
-                key={filter.id}
-                onClick={() => setSelectedDateFilter(filter.id)}
-                className={`px-3 py-1 rounded-full text-xs ${
-                  selectedDateFilter === filter.id
-                  ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-800 dark:text-indigo-100'
-                  : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-                }`}
-              >
-                {filter.name}
-              </button>
-            ))}
+          <div className="mb-4">
+            <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Tarih</h2>
+            <div className="flex flex-wrap gap-2">
+              {DATE_FILTERS.map(filter => (
+                <button
+                  key={filter.id}
+                  onClick={() => setSelectedDateFilter(filter.id)}
+                  className={`px-3 py-1 rounded-md text-xs ${
+                    selectedDateFilter === filter.id
+                    ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-800 dark:text-indigo-100'
+                    : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                  }`}
+                >
+                  {filter.name}
+                </button>
+              ))}
+            </div>
           </div>
+
           {/* Kategori Filtreleri */}
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setSelectedCategory(null)}
-              className={`px-3 py-1 rounded-full text-xs ${
-                !selectedCategory 
-                ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-800 dark:text-indigo-100' 
-                : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-              }`}
-            >
-              Tümü
-            </button>
-            {CATEGORIES.map(cat => (
+          <div>
+            <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Kategori</h2>
+            <div className="flex flex-wrap gap-2">
               <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`px-3 py-1 rounded-full text-xs ${
-                  selectedCategory === cat.id
-                  ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-800 dark:text-indigo-100'
+                onClick={() => setSelectedCategory(null)}
+                className={`px-3 py-1 rounded-md text-xs ${
+                  !selectedCategory 
+                  ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-800 dark:text-indigo-100' 
                   : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
                 }`}
-                style={{ backgroundColor: selectedCategory === cat.id ? cat.color + '33' : undefined }}
               >
-                {cat.name}
+                Tümü
               </button>
-            ))}
+              {CATEGORIES.map(cat => (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className={`px-3 py-1 rounded-md text-xs ${
+                    selectedCategory === cat.id
+                    ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-800 dark:text-indigo-100'
+                    : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                  }`}
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-        
+
+        {/* Notlar Listesi */}
         <div className="flex-1 overflow-y-auto">
-          <div className="flex flex-col-reverse">
+          <div className="flex flex-col">
             {filteredNotes.map((note) => {
               const noteCategory = CATEGORIES.find(cat => cat.id === note.category) || CATEGORIES[5];
-              const isOverdue = note.reminderDate && isBefore(new Date(note.reminderDate), new Date()) && !note.isCompleted;
+              const isOverdue = note.reminderDate && isBefore(new Date(note.reminderDate), new Date());
               
               return (
                 <div
@@ -368,95 +368,36 @@ export default function Home() {
                   onClick={() => handleEdit(note)}
                   className={`p-4 border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 ${
                     editingNote?.id === note.id ? 'bg-indigo-50 dark:bg-gray-700' : ''
-                  } ${isOverdue ? 'border-l-4 border-l-red-500' : ''}`}
+                  }`}
                 >
                   <div className="flex justify-between items-start mb-1">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={note.isCompleted}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            handleToggleComplete(note);
-                          }}
-                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <h3 className={`font-medium text-gray-900 dark:text-white ${note.isCompleted ? 'line-through text-gray-500' : ''}`}>
-                          {note.title}
-                        </h3>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span 
-                          className="text-xs px-2 py-1 rounded-full"
-                          style={{ 
-                            backgroundColor: noteCategory.color + '33',
-                            color: noteCategory.color
-                          }}
-                        >
-                          {noteCategory.name}
+                    <h3 className="font-medium text-gray-900 dark:text-white">
+                      {note.title}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <span 
+                        className="text-xs px-2 py-1 rounded-full"
+                        style={{ 
+                          backgroundColor: noteCategory.color + '33',
+                          color: noteCategory.color
+                        }}
+                      >
+                        {noteCategory.name}
+                      </span>
+                      {note.reminderDate && (
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          isOverdue 
+                            ? 'bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100'
+                            : 'bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-100'
+                        }`}>
+                          {format(new Date(note.reminderDate), 'dd MMM yyyy HH:mm', { locale: tr })}
                         </span>
-                        {note.reminderDate && (
-                          <span className={`text-xs px-2 py-1 rounded-full ${
-                            isOverdue 
-                              ? 'bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100'
-                              : 'bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-100'
-                          }`}>
-                            {format(new Date(note.reminderDate), 'dd MMM yyyy HH:mm', { locale: tr })}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteNote(note.id);
-                        }}
-                        className="text-red-500 hover:text-red-700 dark:text-red-400 text-sm"
-                      >
-                        Sil
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleExportPDF(note);
-                        }}
-                        className="text-indigo-500 hover:text-indigo-700 dark:text-indigo-400 text-sm"
-                      >
-                        PDF İndir
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          note.isPublic ? handleUnshare(note) : handleShare(note);
-                        }}
-                        className={`text-sm ${
-                          note.isPublic 
-                            ? 'text-green-500 hover:text-green-700 dark:text-green-400'
-                            : 'text-blue-500 hover:text-blue-700 dark:text-blue-400'
-                        }`}
-                      >
-                        {note.isPublic ? 'Paylaşımı Kaldır' : 'Paylaş'}
-                      </button>
+                      )}
                     </div>
                   </div>
-                  <p className={`text-sm text-gray-500 dark:text-gray-400 line-clamp-2 ${note.isCompleted ? 'line-through' : ''}`}>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
                     {note.content}
                   </p>
-                  <span className="text-xs text-gray-400 dark:text-gray-500 mt-2 block">
-                    {new Date(note.createdAt).toLocaleDateString()}
-                  </span>
-                  {note.isPublic && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100">
-                        Paylaşıldı
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {format(new Date(note.sharedAt!), 'dd MMM yyyy HH:mm', { locale: tr })}
-                      </span>
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -474,7 +415,7 @@ export default function Home() {
       </div>
 
       {/* Sağ Taraf - Not Detayı/Ekleme Alanı */}
-      <div className="flex-1 flex flex-col h-full">
+      <div className="flex-1 flex flex-col h-full bg-white dark:bg-gray-800">
         <form onSubmit={handleSubmit} className="flex flex-col h-full">
           <div className="p-6 border-b border-gray-200 dark:border-gray-700 shrink-0">
             <div className="flex gap-4 mb-4">
@@ -489,9 +430,19 @@ export default function Home() {
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 className="px-4 py-2 bg-transparent border border-gray-200 dark:border-gray-700 rounded-md text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                style={{ 
+                  backgroundColor: 'transparent',
+                  color: 'inherit'
+                }}
               >
                 {CATEGORIES.map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  <option 
+                    key={cat.id} 
+                    value={cat.id}
+                    className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  >
+                    {cat.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -570,23 +521,45 @@ export default function Home() {
                   {editingNote ? 'Güncelle' : 'Kaydet'}
                 </button>
                 {editingNote && (
-                  <button
-                    type="button"
-                    onClick={() => handleExportPDF(editingNote)}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
-                  >
-                    PDF İndir
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleExportPDF(editingNote)}
+                      className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
+                    >
+                      PDF İndir
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => editingNote.isPublic ? handleUnshare(editingNote) : handleShare(editingNote)}
+                      className={`px-4 py-2 rounded-md text-sm ${
+                        editingNote.isPublic 
+                          ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}
+                    >
+                      {editingNote.isPublic ? 'Paylaşımı Kaldır' : 'Paylaş'}
+                    </button>
+                  </>
                 )}
               </div>
               {editingNote && (
-                <button
-                  type="button"
-                  onClick={handleCancel}
-                  className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 text-sm"
-                >
-                  İptal
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteNote(editingNote.id)}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
+                  >
+                    Sil
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancel}
+                    className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 text-sm"
+                  >
+                    İptal
+                  </button>
+                </div>
               )}
             </div>
           </div>

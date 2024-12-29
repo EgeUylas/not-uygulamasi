@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'Not Uygulaması',
-  description: 'Basit ve kullanışlı bir not alma uygulaması',
+  description: 'Notlarınızı organize edin ve yönetin',
 }
 
 export default function RootLayout({
