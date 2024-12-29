@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase/config';
-import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, orderBy, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, orderBy, updateDoc, getDoc } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { jsPDF } from 'jspdf';
@@ -12,9 +12,12 @@ import "react-datepicker/dist/react-datepicker.css";
 import { format, isAfter, isBefore, isToday, addDays } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import ImageUpload from '../components/ImageUpload';
+import Profile from './components/Profile';
+import { useProfile } from './hooks/useProfile';
 
 // Kategori türleri
 const CATEGORIES = [
+  { id: 'all', name: 'Tümü', color: '#9FA4A9' },
   { id: 'personal', name: 'Kişisel', color: '#FF6B6B' },
   { id: 'work', name: 'İş', color: '#4ECDC4' },
   { id: 'school', name: 'Okul', color: '#45B7D1' },
@@ -42,9 +45,47 @@ interface Note {
   images?: string[];
   shareId?: string;
   isPublic?: boolean;
-  sharedBy?: string;
-  sharedAt?: string;
+  authorName?: string;
+  authorAvatar?: string;
+  likes?: number;
+  comments?: number;
 }
+
+// Notification bileşeni
+const Notification = ({ message, type, onClose }: { message: string; type: 'success' | 'error'; onClose: () => void }) => {
+  // 3 saniye sonra otomatik kapanma
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onClose();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div className="fixed top-4 right-4 z-50 animate-fade-in">
+      <div className={`rounded-lg shadow-lg p-4 ${
+        type === 'success' ? 'bg-green-100 dark:bg-green-800' : 'bg-red-100 dark:bg-red-800'
+      }`}>
+        <div className="flex items-center gap-2">
+          {type === 'success' ? (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-500 dark:text-green-200" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500 dark:text-red-200" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+          )}
+          <p className={`text-sm ${
+            type === 'success' ? 'text-green-800 dark:text-green-100' : 'text-red-800 dark:text-red-100'
+          }`}>
+            {message}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function Home() {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -60,6 +101,13 @@ export default function Home() {
   const [searchTerm, setSearchTerm] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const router = useRouter();
+  const [showProfile, setShowProfile] = useState(false);
+  const { updateTotalNotes } = useProfile();
+  const [isPublic, setIsPublic] = useState(false);
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: 'success' | 'error';
+  } | null>(null);
 
   useEffect(() => {
     let unsubscribeNotes: (() => void) | undefined;
@@ -79,6 +127,7 @@ export default function Home() {
             ...doc.data()
           } as Note));
           setNotes(notesData);
+          updateTotalNotes(notesData.length).catch(console.error);
           setLoading(false);
         });
       } else {
@@ -93,7 +142,18 @@ export default function Home() {
         unsubscribeNotes();
       }
     };
-  }, [router]);
+  }, [router, updateTotalNotes]);
+
+  useEffect(() => {
+    if (editingNote) {
+      setTitle(editingNote.title);
+      setContent(editingNote.content);
+      setCategory(editingNote.category);
+      setReminderDate(editingNote.reminderDate ? new Date(editingNote.reminderDate) : null);
+      setImages(editingNote.images || []);
+      setIsPublic(editingNote.isPublic || false);
+    }
+  }, [editingNote]);
 
   const handleImageUpload = (url: string) => {
     setImages(prev => [...prev, url]);
@@ -105,39 +165,36 @@ export default function Home() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !content.trim() || !user) return;
+    if (!user) return;
 
     try {
+      const noteData = {
+        title,
+        content,
+        userId: user.uid,
+        createdAt: new Date().toISOString(),
+        category,
+        reminderDate: reminderDate ? reminderDate.toISOString() : null,
+        images: images || [],
+        isPublic: false,
+        likes: 0,
+        comments: 0
+      };
+
       if (editingNote) {
-        await updateDoc(doc(db, 'notes', editingNote.id), {
-          title,
-          content,
-          category,
-          reminderDate: reminderDate ? reminderDate.toISOString() : null,
-          images,
-          updatedAt: new Date().toISOString()
-        });
-        setEditingNote(null);
+        await updateDoc(doc(db, 'notes', editingNote.id), noteData);
       } else {
-        const newNote = {
-          title,
-          content,
-          category,
-          userId: user.uid,
-          createdAt: new Date().toISOString(),
-          reminderDate: reminderDate ? reminderDate.toISOString() : null,
-          images
-        };
-        await addDoc(collection(db, 'notes'), newNote);
+        await addDoc(collection(db, 'notes'), noteData);
       }
+
       setTitle('');
       setContent('');
       setCategory('personal');
       setReminderDate(null);
       setImages([]);
+      setEditingNote(null);
     } catch (error) {
-      console.error('Not işlemi sırasında hata oluştu:', error);
-      alert('Not kaydedilirken bir hata oluştu!');
+      console.error('Not kaydedilirken hata:', error);
     }
   };
 
@@ -212,10 +269,8 @@ export default function Home() {
     // İçerik
     pdf.setFontSize(12);
     
-    // İçeriği satırlara böl
     const lines = pdf.splitTextToSize(note.content, 170);
     
-    // Her satırı yazdır
     pdf.text(lines, 20, 40);
     
     // PDF'i indir
@@ -231,26 +286,57 @@ export default function Home() {
     }
   };
 
-  // Paylaşım fonksiyonları
   const handleShare = async (note: Note) => {
     if (!user) return;
     
     try {
-      const shareId = note.shareId || crypto.randomUUID();
-      await updateDoc(doc(db, 'notes', note.id), {
-        shareId,
-        isPublic: true,
-        sharedBy: user.displayName || user.email,
-        sharedAt: new Date().toISOString()
-      });
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userData = userDoc.data();
       
-      // Paylaşım linkini panoya kopyala
-      const shareLink = `${window.location.origin}/shared/${shareId}`;
-      await navigator.clipboard.writeText(shareLink);
-      alert('Paylaşım linki panoya kopyalandı!');
+      if (!userData?.name) {
+        setNotification({
+          message: 'Lütfen önce profil bilgilerinizi güncelleyin!',
+          type: 'error'
+        });
+        setShowProfile(true);
+        return;
+      }
+      
+      // Önce notu güncelle
+      const noteRef = doc(db, 'notes', note.id);
+      const updatedData = {
+        isPublic: true,
+        sharedAt: new Date().toISOString(),
+        authorName: userData.name,
+        authorAvatar: userData.avatar || '/avatars/avatar1.svg',
+        likes: 0,
+        comments: 0
+      };
+      
+      await updateDoc(noteRef, updatedData);
+      
+      // Local state'i güncelle
+      setNotes(prevNotes => 
+        prevNotes.map(n => 
+          n.id === note.id 
+            ? { 
+                ...n,
+                ...updatedData
+              }
+            : n
+        )
+      );
+      
+      setNotification({
+        message: 'Notunuz keşfet sayfasında paylaşıldı!',
+        type: 'success'
+      });
     } catch (error) {
       console.error('Not paylaşılırken hata oluştu:', error);
-      alert('Not paylaşılırken bir hata oluştu!');
+      setNotification({
+        message: 'Not paylaşılırken bir hata oluştu!',
+        type: 'error'
+      });
     }
   };
 
@@ -260,8 +346,13 @@ export default function Home() {
     try {
       await updateDoc(doc(db, 'notes', note.id), {
         isPublic: false,
-        sharedAt: null
+        sharedAt: null,
+        authorName: null,
+        authorAvatar: null,
+        likes: null,
+        comments: null
       });
+      alert('Not paylaşımdan kaldırıldı!');
     } catch (error) {
       console.error('Not paylaşımı kaldırılırken hata oluştu:', error);
       alert('Not paylaşımı kaldırılırken bir hata oluştu!');
@@ -278,12 +369,36 @@ export default function Home() {
 
   return (
     <div className="h-screen overflow-hidden bg-gray-50 dark:bg-gray-900 flex">
+      {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          onClose={() => setNotification(null)}
+        />
+      )}
+      
       {/* Sol Sidebar - Notlar Listesi */}
       <div className="w-80 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col h-full">
         <div className="p-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
           <div className="flex justify-between items-center mb-4">
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">Notlarım</h1>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowProfile(true)}
+                className="p-2 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.982 18.725A7.488 7.488 0 0012 15.75a7.488 7.488 0 00-5.982 2.975m11.963 0a9 9 0 10-11.963 0m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </button>
+              <button
+                onClick={() => router.push('/explore')}
+                className="p-2 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+              </button>
               <ThemeToggle />
               <button
                 onClick={handleLogout}
@@ -328,25 +443,19 @@ export default function Home() {
           <div>
             <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Kategori</h2>
             <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setSelectedCategory(null)}
-                className={`px-3 py-1 rounded-md text-xs ${
-                  !selectedCategory 
-                  ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-800 dark:text-indigo-100' 
-                  : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-                }`}
-              >
-                Tümü
-              </button>
               {CATEGORIES.map(cat => (
                 <button
                   key={cat.id}
-                  onClick={() => setSelectedCategory(cat.id)}
+                  onClick={() => setSelectedCategory(cat.id === 'all' ? null : cat.id)}
                   className={`px-3 py-1 rounded-md text-xs ${
-                    selectedCategory === cat.id
+                    (cat.id === 'all' && !selectedCategory) || selectedCategory === cat.id
                     ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-800 dark:text-indigo-100'
                     : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
                   }`}
+                  style={{
+                    backgroundColor: selectedCategory === cat.id ? cat.color + '33' : undefined,
+                    color: selectedCategory === cat.id ? cat.color : undefined
+                  }}
                 >
                   {cat.name}
                 </button>
@@ -429,20 +538,10 @@ export default function Home() {
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className="px-4 py-2 bg-transparent border border-gray-200 dark:border-gray-700 rounded-md text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                style={{ 
-                  backgroundColor: 'transparent',
-                  color: 'inherit'
-                }}
+                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
               >
-                {CATEGORIES.map(cat => (
-                  <option 
-                    key={cat.id} 
-                    value={cat.id}
-                    className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                  >
-                    {cat.name}
-                  </option>
+                {CATEGORIES.filter(cat => cat.id !== 'all').map(cat => (
+                  <option key={cat.id} value={cat.id}>{cat.name}</option>
                 ))}
               </select>
             </div>
@@ -451,14 +550,10 @@ export default function Home() {
                 <DatePicker
                   selected={reminderDate}
                   onChange={(date) => setReminderDate(date)}
-                  showTimeSelect
-                  timeFormat="HH:mm"
-                  timeIntervals={15}
-                  dateFormat="dd MMMM yyyy HH:mm"
-                  locale={tr}
+                  dateFormat="dd/MM/yyyy"
                   placeholderText="Hatırlatıcı ekle"
-                  className="px-4 py-2 bg-transparent border border-gray-200 dark:border-gray-700 rounded-md text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-48"
-                  isClearable
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                  locale={tr}
                 />
                 {reminderDate && (
                   <button
@@ -516,8 +611,11 @@ export default function Home() {
               <div className="flex gap-2">
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm"
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm"
                 >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 3.75V16.5L12 14.25 7.5 16.5V3.75m9 0H18A2.25 2.25 0 0120.25 6v12A2.25 2.25 0 0118 20.25H6A2.25 2.25 0 013.75 18V6A2.25 2.25 0 016 3.75h1.5m9 0h-9" />
+                  </svg>
                   {editingNote ? 'Güncelle' : 'Kaydet'}
                 </button>
                 {editingNote && (
@@ -525,20 +623,37 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => handleExportPDF(editingNote)}
-                      className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
+                      className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
                     >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                      </svg>
                       PDF İndir
                     </button>
                     <button
                       type="button"
                       onClick={() => editingNote.isPublic ? handleUnshare(editingNote) : handleShare(editingNote)}
-                      className={`px-4 py-2 rounded-md text-sm ${
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm ${
                         editingNote.isPublic 
                           ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
                           : 'bg-blue-600 hover:bg-blue-700 text-white'
                       }`}
                     >
-                      {editingNote.isPublic ? 'Paylaşımı Kaldır' : 'Paylaş'}
+                      {editingNote.isPublic ? (
+                        <>
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                          </svg>
+                          Paylaşımı Kaldır
+                        </>
+                      ) : (
+                        <>
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
+                          </svg>
+                          Paylaş
+                        </>
+                      )}
                     </button>
                   </>
                 )}
@@ -565,6 +680,8 @@ export default function Home() {
           </div>
         </form>
       </div>
+
+      {showProfile && <Profile onClose={() => setShowProfile(false)} />}
     </div>
   );
 }

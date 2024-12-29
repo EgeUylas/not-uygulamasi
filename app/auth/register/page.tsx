@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, updateProfile } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../../firebase/config';
 import { FirebaseError } from 'firebase/app';
@@ -23,10 +23,12 @@ export default function RegisterPage() {
       const provider = new GoogleAuthProvider();
       const userCredential = await signInWithPopup(auth, provider);
       
+      // Firestore'a kullanıcı bilgilerini kaydet
       await setDoc(doc(db, 'users', userCredential.user.uid), {
-        name: userCredential.user.displayName,
+        name: userCredential.user.displayName || 'İsimsiz Kullanıcı',
         email: userCredential.user.email,
         createdAt: new Date().toISOString(),
+        avatar: userCredential.user.photoURL || '/avatars/avatar1.svg'
       });
       
       router.push('/');
@@ -58,11 +60,19 @@ export default function RegisterPage() {
 
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      
+      // Kullanıcı adını Firebase Auth'a kaydet
+      await updateProfile(userCredential.user, {
+        displayName: name
+      });
+      
+      // Firestore'a kullanıcı bilgilerini kaydet
       await setDoc(doc(db, 'users', userCredential.user.uid), {
         name,
         email,
         createdAt: new Date().toISOString(),
       });
+      
       router.push('/');
     } catch (err: unknown) {
       if (err instanceof FirebaseError) {

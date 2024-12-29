@@ -1,0 +1,70 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Notlar
+    match /notes/{noteId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || 
+        (resource.data.userId == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys()
+         .hasOnly(['isPublic', 'sharedAt', 'authorName', 'authorAvatar', 'likes', 'comments']))
+      );
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      // Not etiketleri için alt koleksiyon kuralları
+      match /tags/{tagId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() && get(/databases/$(database)/documents/notes/$(noteId)).data.userId == request.auth.uid;
+      }
+    }
+
+    // Kullanıcı profilleri
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isOwner(userId);
+    }
+
+    // Beğeniler
+    match /likes/{likeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow delete: if isSignedIn() && 
+        resource.data.userId == request.auth.uid;
+    }
+
+    // Yorumlar
+    match /comments/{commentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && 
+        resource.data.userId == request.auth.uid;
+    }
+
+    // Koleksiyonlar
+    match /collections/{collectionId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && 
+        resource.data.userId == request.auth.uid;
+    }
+
+    // Etiketler
+    match /tags/{tagId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && 
+        resource.data.userId == request.auth.uid;
+    }
+  }
+} 
